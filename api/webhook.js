@@ -62,6 +62,26 @@ async function createShareLink(req, message) {
   return `${requestOrigin(req)}/api/inbox?token=${encodeURIComponent(rawToken)}&date=${date}`;
 }
 
+async function createMcpLink(req, message) {
+  const rawToken = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  const record = {
+    tokenHash,
+    createdAt: new Date().toISOString(),
+    userId: message.from?.id ?? null,
+    chatId: message.chat?.id ?? null
+  };
+
+  await put('mcp/current.json', JSON.stringify(record, null, 2), {
+    access: 'private',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+    allowOverwrite: true
+  });
+
+  return `${requestOrigin(req)}/api/mcp?token=${encodeURIComponent(rawToken)}`;
+}
+
 async function saveTelegramFile(token, file, basePath) {
   const fileId = file.file_id;
   if (!fileId) return null;
@@ -128,7 +148,7 @@ async function saveMetadata(message, update, classification, savedFile, basePath
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    return res.status(200).json({ ok: true, service: 'Chuck Inbox', version: '1.2' });
+    return res.status(200).json({ ok: true, service: 'Chuck Inbox', version: '1.3' });
   }
 
   if (req.method !== 'POST') {
@@ -175,6 +195,29 @@ export default async function handler(req, res) {
         allow_sending_without_reply: true
       });
       return res.status(200).json({ ok: true, shared: false });
+    }
+  }
+
+  if (command === '/mcpkey' || command === '/mcp' || command === 'подключить chatgpt') {
+    try {
+      const mcpUrl = await createMcpLink(req, message);
+      await telegramApi(token, 'sendMessage', {
+        chat_id: chatId,
+        text: `Адрес Chuck Inbox для подключения к ChatGPT:\n${mcpUrl}\n\nНе отправляй эту ссылку в обычные чаты. Новая команда /mcpkey автоматически отключит предыдущую ссылку.`,
+        reply_to_message_id: message.message_id,
+        allow_sending_without_reply: true,
+        disable_web_page_preview: true
+      });
+      return res.status(200).json({ ok: true, mcp: true });
+    } catch (error) {
+      console.error('Chuck Inbox MCP link failed:', error);
+      await telegramApi(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Не смог создать ссылку для подключения ChatGPT ⚠️',
+        reply_to_message_id: message.message_id,
+        allow_sending_without_reply: true
+      });
+      return res.status(200).json({ ok: true, mcp: false });
     }
   }
 
