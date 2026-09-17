@@ -1,4 +1,5 @@
 import { put } from '@vercel/blob';
+import { createHash, randomBytes } from 'node:crypto';
 
 function classifyMessage(message) {
   if (message.photo?.length) return { type: 'photo', file: message.photo.at(-1), label: 'Фото' };
@@ -30,6 +31,35 @@ async function telegramApi(token, method, body) {
 
 function safeName(name = '') {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120) || 'file';
+}
+
+function requestOrigin(req) {
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  return `${proto}://${host}`;
+}
+
+async function createShareLink(req, message) {
+  const rawToken = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + 30 * 60 * 1000);
+
+  const record = {
+    createdAt: createdAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    userId: message.from?.id ?? null,
+    chatId: message.chat?.id ?? null
+  };
+
+  await put(`shares/${tokenHash}.json`, JSON.stringify(record), {
+    access: 'private',
+    contentType: 'application/json',
+    addRandomSuffix: false
+  });
+
+  const date = new Date().toISOString().slice(0, 10);
+  return `${requestOrigin(req)}/api/inbox?token=${encodeURIComponent(rawToken)}&date=${date}`;
 }
 
 async function saveTelegramFile(token, file, basePath) {
@@ -81,6 +111,7 @@ async function saveMetadata(message, update, classification, savedFile, basePath
       lastName: message.from?.last_name ?? null
     },
     forwarded: Boolean(message.forward_origin || message.forward_from || message.forward_sender_name),
+    forwardOrigin: message.forward_origin ?? null,
     type: classification.type,
     text: message.text ?? null,
     caption: message.caption ?? null,
@@ -97,7 +128,7 @@ async function saveMetadata(message, update, classification, savedFile, basePath
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    return res.status(200).json({ ok: true, service: 'Chuck Inbox', version: '1.1' });
+    return res.status(200).json({ ok: true, service: 'Chuck Inbox', version: '1.2' });
   }
 
   if (req.method !== 'POST') {
@@ -121,8 +152,33 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, ignored: true });
   }
 
-  const classification = classifyMessage(message);
   const chatId = message.chat.id;
+  const command = String(message.text || '').trim().toLowerCase();
+
+  if (command === '/share' || command === 'share' || command === 'ссылка для чата') {
+    try {
+      const shareUrl = await createShareLink(req, message);
+      await telegramApi(token, 'sendMessage', {
+        chat_id: chatId,
+        text: `Временная ссылка для разбора материалов (30 минут):\n${shareUrl}`,
+        reply_to_message_id: message.message_id,
+        allow_sending_without_reply: true,
+        disable_web_page_preview: true
+      });
+      return res.status(200).json({ ok: true, shared: true });
+    } catch (error) {
+      console.error('Chuck Inbox share link failed:', error);
+      await telegramApi(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Не смог создать временную ссылку ⚠️',
+        reply_to_message_id: message.message_id,
+        allow_sending_without_reply: true
+      });
+      return res.status(200).json({ ok: true, shared: false });
+    }
+  }
+
+  const classification = classifyMessage(message);
   const unique = `${Date.now()}-${update.update_id ?? 'u'}-${message.message_id ?? 'm'}`;
   const basePath = `inbox/${new Date().toISOString().slice(0, 10)}/${unique}`;
 
