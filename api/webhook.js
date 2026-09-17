@@ -75,7 +75,20 @@ async function resolvePackage(message) {
   return pkg;
 }
 
-async function saveTelegramFile(token, file, basePath) {
+function inferredMime(type, filename, telegramMime, responseMime) {
+  if (telegramMime) return telegramMime;
+  const lower = String(filename || '').toLowerCase();
+  if (type === 'photo' || lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (type === 'video' || type === 'video_note' || lower.endsWith('.mp4')) return 'video/mp4';
+  if (type === 'voice' || lower.endsWith('.ogg') || lower.endsWith('.oga')) return 'audio/ogg';
+  if (type === 'audio' && lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (responseMime && responseMime !== 'application/octet-stream') return responseMime;
+  return 'application/octet-stream';
+}
+
+async function saveTelegramFile(token, file, basePath, type) {
   if (!file?.file_id) return { metadata: null, emailAttachment: null };
   const info = await telegramApi(token, 'getFile', { file_id: file.file_id });
   if (!info?.file_path) return { metadata: null, emailAttachment: null };
@@ -84,7 +97,8 @@ async function saveTelegramFile(token, file, basePath) {
   if (!download.ok) throw new Error(`Telegram file download failed: ${download.status}`);
   const buffer = await download.arrayBuffer();
   const originalName = file.file_name || info.file_path.split('/').pop() || 'file';
-  const contentType = file.mime_type || download.headers.get('content-type') || 'application/octet-stream';
+  const responseMime = download.headers.get('content-type');
+  const contentType = inferredMime(type, originalName, file.mime_type, responseMime);
   const blob = await put(`${basePath}/${safeName(originalName)}`, buffer, { access: 'private', contentType, addRandomSuffix: true });
 
   const metadata = {
@@ -135,7 +149,7 @@ async function saveMetadata(message, update, classification, savedFile, basePath
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    return res.status(200).json({ ok: true, service: 'Chuck Inbox', version: '1.5', emailBridge: true, packageIdleSeconds: 180 });
+    return res.status(200).json({ ok: true, service: 'Chuck Inbox', version: '1.6', emailBridge: true, packageIdleSeconds: 180 });
   }
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
@@ -158,7 +172,7 @@ export default async function handler(req, res) {
     const unique = `${String(message.message_id ?? 'm').padStart(10, '0')}-${Date.now()}-${update.update_id ?? 'u'}`;
     const basePath = `inbox/${pkg.date}/${pkg.packageId}/${unique}`;
     const saved = classification.file
-      ? await saveTelegramFile(token, classification.file, basePath)
+      ? await saveTelegramFile(token, classification.file, basePath, classification.type)
       : { metadata: null, emailAttachment: null };
 
     let email;
