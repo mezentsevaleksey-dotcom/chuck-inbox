@@ -1,13 +1,17 @@
-import { put } from '@vercel/blob';
+import { get, put } from '@vercel/blob';
 import { createHash, randomBytes } from 'node:crypto';
+
+const PACKAGE_IDLE_MS = 3 * 60 * 1000;
 
 function classifyMessage(message) {
   if (message.photo?.length) return { type: 'photo', file: message.photo.at(-1), label: 'Фото' };
   if (message.video) return { type: 'video', file: message.video, label: 'Видео' };
+  if (message.video_note) return { type: 'video_note', file: message.video_note, label: 'Видеосообщение' };
   if (message.document) return { type: 'document', file: message.document, label: 'Документ' };
   if (message.voice) return { type: 'voice', file: message.voice, label: 'Голосовое' };
   if (message.audio) return { type: 'audio', file: message.audio, label: 'Аудио' };
   if (message.animation) return { type: 'animation', file: message.animation, label: 'Анимация' };
+  if (message.sticker) return { type: 'sticker', file: message.sticker, label: 'Стикер' };
   if (message.text || message.caption) {
     const text = message.text || message.caption || '';
     const hasUrl = /(https?:\/\/|www\.)\S+/i.test(text);
@@ -37,6 +41,79 @@ function requestOrigin(req) {
   const host = req.headers['x-forwarded-host'] || req.headers.host;
   const proto = req.headers['x-forwarded-proto'] || 'https';
   return `${proto}://${host}`;
+}
+
+async function readJson(pathname) {
+  try {
+    const result = await get(pathname, { access: 'private', useCache: false });
+    if (!result || result.statusCode !== 200) return null;
+    return JSON.parse(await new Response(result.stream).text());
+  } catch {
+    return null;
+  }
+}
+
+function newPackageId(now = new Date()) {
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  return `${stamp}-${randomBytes(5).toString('hex')}`;
+}
+
+async function resolvePackage(message) {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const chatId = String(message.chat.id);
+  const pointerPath = `packages/current/${safeName(chatId)}.json`;
+  const current = await readJson(pointerPath);
+
+  const currentLast = current?.lastActivityAt ? new Date(current.lastActivityAt).getTime() : 0;
+  const samePackage = Boolean(
+    current?.packageId &&
+    current?.date &&
+    currentLast &&
+    now.getTime() - currentLast <= PACKAGE_IDLE_MS
+  );
+
+  const pkg = samePackage
+    ? {
+        packageId: current.packageId,
+        date: current.date,
+        startedAt: current.startedAt || nowIso,
+        lastActivityAt: nowIso
+      }
+    : {
+        packageId: newPackageId(now),
+        date: nowIso.slice(0, 10),
+        startedAt: nowIso,
+        lastActivityAt: nowIso
+      };
+
+  await put(pointerPath, JSON.stringify({
+    ...pkg,
+    chatId: message.chat.id,
+    updatedAt: nowIso,
+    inactivityWindowSeconds: PACKAGE_IDLE_MS / 1000
+  }, null, 2), {
+    access: 'private',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    cacheControlMaxAge: 60
+  });
+
+  await put(`packages/${pkg.date}/${pkg.packageId}/status.json`, JSON.stringify({
+    ...pkg,
+    chatId: message.chat.id,
+    status: 'open',
+    inactivityWindowSeconds: PACKAGE_IDLE_MS / 1000
+  }, null, 2), {
+    access: 'private',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    cacheControlMaxAge: 60
+  });
+
+  return pkg;
 }
 
 async function createShareLink(req, message) {
@@ -109,15 +186,28 @@ async function saveTelegramFile(token, file, basePath) {
     downloadUrl: blob.downloadUrl,
     contentType,
     size: buffer.byteLength,
-    telegramFileId: fileId
+    telegramFileId: fileId,
+    telegramFileUniqueId: file.file_unique_id ?? null,
+    fileName: file.file_name ?? originalName,
+    duration: file.duration ?? null,
+    width: file.width ?? null,
+    height: file.height ?? null
   };
 }
 
-async function saveMetadata(message, update, classification, savedFile, basePath) {
+async function saveMetadata(message, update, classification, savedFile, basePath, pkg) {
   const metadata = {
     savedAt: new Date().toISOString(),
     updateId: update.update_id ?? null,
     messageId: message.message_id ?? null,
+    mediaGroupId: message.media_group_id ?? null,
+    package: {
+      id: pkg.packageId,
+      date: pkg.date,
+      startedAt: pkg.startedAt,
+      lastActivityAt: pkg.lastActivityAt,
+      inactivityWindowSeconds: PACKAGE_IDLE_MS / 1000
+    },
     date: message.date ?? null,
     chat: {
       id: message.chat?.id ?? null,
@@ -132,6 +222,16 @@ async function saveMetadata(message, update, classification, savedFile, basePath
     },
     forwarded: Boolean(message.forward_origin || message.forward_from || message.forward_sender_name),
     forwardOrigin: message.forward_origin ?? null,
+    replyTo: message.reply_to_message ? {
+      messageId: message.reply_to_message.message_id ?? null,
+      text: message.reply_to_message.text ?? message.reply_to_message.caption ?? null,
+      from: message.reply_to_message.from ? {
+        id: message.reply_to_message.from.id ?? null,
+        username: message.reply_to_message.from.username ?? null,
+        firstName: message.reply_to_message.from.first_name ?? null,
+        lastName: message.reply_to_message.from.last_name ?? null
+      } : null
+    } : null,
     type: classification.type,
     text: message.text ?? null,
     caption: message.caption ?? null,
@@ -148,7 +248,7 @@ async function saveMetadata(message, update, classification, savedFile, basePath
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    return res.status(200).json({ ok: true, service: 'Chuck Inbox', version: '1.3' });
+    return res.status(200).json({ ok: true, service: 'Chuck Inbox', version: '1.4', packageIdleSeconds: PACKAGE_IDLE_MS / 1000 });
   }
 
   if (req.method !== 'POST') {
@@ -222,15 +322,17 @@ export default async function handler(req, res) {
   }
 
   const classification = classifyMessage(message);
-  const unique = `${Date.now()}-${update.update_id ?? 'u'}-${message.message_id ?? 'm'}`;
-  const basePath = `inbox/${new Date().toISOString().slice(0, 10)}/${unique}`;
 
   try {
+    const pkg = await resolvePackage(message);
+    const unique = `${String(message.message_id ?? 'm').padStart(10, '0')}-${Date.now()}-${update.update_id ?? 'u'}`;
+    const basePath = `inbox/${pkg.date}/${pkg.packageId}/${unique}`;
+
     const savedFile = classification.file
       ? await saveTelegramFile(token, classification.file, basePath)
       : null;
 
-    await saveMetadata(message, update, classification, savedFile, basePath);
+    await saveMetadata(message, update, classification, savedFile, basePath, pkg);
 
     await telegramApi(token, 'sendMessage', {
       chat_id: chatId,
@@ -239,7 +341,12 @@ export default async function handler(req, res) {
       allow_sending_without_reply: true
     });
 
-    return res.status(200).json({ ok: true, saved: true, type: classification.type });
+    return res.status(200).json({
+      ok: true,
+      saved: true,
+      type: classification.type,
+      packageId: pkg.packageId
+    });
   } catch (error) {
     console.error('Chuck Inbox save failed:', error);
 
