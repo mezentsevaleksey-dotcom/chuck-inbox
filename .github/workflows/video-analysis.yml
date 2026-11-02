@@ -1,0 +1,28 @@
+name: Chuck Inbox video analysis (manual test)
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: Public Instagram or YouTube HTTPS video URL
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned downloader
+        run: |
+          python -m pip install 'yt-dlp==2025.10.22'
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+      - name: Download, analyze and email
+        env:
+          SOURCE_URL: ${{ inputs.source_url }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          CHUCK_INBOX_EMAIL: ${{ secrets.CHUCK_INBOX_EMAIL }}
+        run: python scripts/analyze_video.py
