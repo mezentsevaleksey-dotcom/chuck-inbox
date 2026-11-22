@@ -107,6 +107,15 @@ test('unrelated, quoted-only, expired, and oversized result deliveries fail befo
   await assert.rejects(run({action:'deliver',job:{url,source_id:id},report:'report',frames:'not-jpeg'},claims));
   assert.equal(sent.length,0);
 });
+test('repeated fixed-fixture tests have separate labelled results without changing production deduplication',async()=>{
+  const fixture='https://www.instagram.com/p/DWuGIV2iTcr/';
+  const source={...original,subject:SOURCE+'TEST 12345',text:original.text.replace(url,fixture)};
+  const {run,sent}=setup({source});
+  await run({action:'deliver',job:{url:fixture,source_id:id},report:'Frame observations'},claims);
+  assert.match(sent[0].body.subject,/^\[Chuck Inbox Analysis\] v2 TEST 12345 /);
+  assert.equal(sent[0].headers['Idempotency-Key'],'chuck-video-fixture-12345');
+  assert.match(sent[0].body.text,/не получен из Telegram/);
+});
 test('server daily cap preserves allowance for original forwarding',async()=>{
   const {run,sent}=setup({rows:Array.from({length:90},()=>original)});
   await assert.rejects(run({action:'deliver',job:{url,source_id:id},report:'report'},claims),/daily_limit/);

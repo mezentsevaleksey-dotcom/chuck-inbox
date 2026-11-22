@@ -31,25 +31,29 @@ Do not change repository visibility or runner class without revisiting cost.
 
 Existing PR: https://github.com/mezentsevaleksey-dotcom/chuck-inbox/pull/1
 
-1. Owner access to GitHub and Vercel team `chuck20` is now authorized. The existing
-   production Resend key and recipient are non-readable Vercel secrets. Do not
-   rotate, expose or copy them. No GitHub email secret is needed.
-2. Keep repository variable `VIDEO_ANALYSIS_ENABLED=false` until platform and
-   delivery tests pass. It is already saved and verified in GitHub settings.
-3. Merge PR #1 and deploy the additive OIDC endpoint to test the production-only
-   credentials. The original API handlers and package.json remain unchanged.
-   The new endpoint returns no data without a valid authorized GitHub identity.
-4. Run `Chuck Inbox automatic video analysis` on main with `mode=check`. The
-   existing Resend key must support listing/retrieving sent mail. If it is a
-   sending-only key, owner authorization for a suitable separate key is needed.
-5. Run `mode=delivery-test`. This sends a clearly labelled technical email to the
-   existing recipient and checks Resend's delivery status. It is not video evidence.
-6. Resolve platform source access and pass an actual public-video smoke test.
-7. Set `VIDEO_ANALYSIS_START_AT` to the actual activation timestamp, with explicit
-   timezone. Run `mode=inbox` on a newly forwarded video and inspect delivery.
-8. Set `VIDEO_ANALYSIS_ENABLED=true` only after the full test passes. Polling runs
-   at minutes 17 and 47 each hour; GitHub may delay scheduled runs. Set it to
-   `false` to stop analysis. Telegram → Gmail remains independent.
+1. PR #1 is merged. Owner access to GitHub and Vercel team `chuck20` is
+   authorized. The existing production Resend key and recipient remain in Vercel;
+   no GitHub email secret is needed. The original API handlers and package.json
+   are unchanged.
+2. `mode=check` verifies the main workflow's OIDC identity and real Resend read
+   access. `mode=delivery-test` sends a clearly labelled technical email and
+   verifies its delivery. Both have passed in production.
+3. Run `Public video smoke test` with `platform=instagram` or `platform=youtube`.
+   An unavailable source fails the test. Never enable an unverified platform.
+4. Run `mode=integration-test` to create a clearly labelled, fixed public NASA
+   Instagram test source, analyze it, attach six actual frames and verify delivery
+   to the existing inbox. It does not impersonate a Telegram message. This test
+   requires a complete analysis; an unavailable-source notice is a failure.
+5. Set `VIDEO_ANALYSIS_PLATFORMS` to the verified comma-separated platforms. The
+   fail-safe default is `instagram`. YouTube remains excluded until its source
+   authorization issue is resolved and the real platform test passes.
+6. Set `VIDEO_ANALYSIS_START_AT` to the actual activation timestamp with explicit
+   timezone so old messages are not unexpectedly processed. Set
+   `VIDEO_ANALYSIS_ENABLED=true` only after the full test passes. Run `mode=inbox`
+   once to verify the normal planner with the saved configuration.
+7. Polling runs at minutes 17 and 47 each hour; GitHub may delay scheduled runs.
+   Set `VIDEO_ANALYSIS_ENABLED=false` to stop analysis. Telegram → Gmail remains
+   independent. A disabled platform's original links are still forwarded.
 
 ## Bounds and recovery
 
@@ -110,15 +114,15 @@ bridge. The trusted branch configuration audit prints variable-presence booleans
 - https://github.com/SYSTRAN/faster-whisper
 - https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
 
-## Session verification record (2026-11-22)
+## Session verification record (2026-11-23, Moscow time)
 
-**Not activated. Deployment and end-to-end integration checks in progress.**
+**Not activated. Instagram source-to-analysis-email test passed; a report-grounding improvement is being verified.**
 
 - No previous Actions runs existed at the start. Real CI runs are now recorded.
-- Latest local validation: 25 Python tests + 12 bridge authorization/delivery
+- Latest validation: 27 Python tests + 15 bridge authorization/delivery
   tests + 4 Node forwarding regression tests passed; installed dependency consistency check passed. The same regression
   suite passes on GitHub-hosted Ubuntu runners.
-- Vercel preview build succeeds. All original API handlers and `package.json` are
+- Vercel production build succeeds. All original API handlers and `package.json` are
   byte-for-byte unchanged relative to the original main. Only a separate protected
   video endpoint is added.
 - GitHub settings confirm no repository/environment secrets. They are no longer
@@ -132,6 +136,10 @@ bridge. The trusted branch configuration audit prints variable-presence booleans
   `source_auth_required`. It is not a successful download/analysis. Repeated
   attempts stopped. No account cookies or paid proxies were added.
   Evidence: https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45060716601
+  GitHub/Vercel authorization does not authorize YouTube. No YouTube account
+  session is configured or exported. Any future credential-based approach needs
+  explicit owner authorization and a successful test on the actual runner before
+  adding `youtube` to `VIDEO_ANALYSIS_PLATFORMS`; browser sign-in alone is not proof.
 - Local network cannot resolve YouTube. This is separate from the GitHub runner's
   platform-authorization response.
 - Real local vision test: official public Qwen sample `space_woaudio.mp4`,
@@ -146,10 +154,33 @@ bridge. The trusted branch configuration audit prints variable-presence booleans
   ask/country speech. This exposed an incompatible PyAV 19 API; `av==16.0.1`
   was pinned and the speech test then passed.
   Source: https://github.com/openai/whisper/blob/main/tests/jfk.flac
-- Instagram end-to-end download and real Resend email delivery remain unverified.
-  Successful local model tests do not prove YouTube/Instagram extraction works.
+- Real OIDC and Resend read-access check passed:
+  https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45071662694
+- Technical email delivery passed and the message was independently found in
+  Gmail. This is delivery evidence, not video-analysis evidence:
+  https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45071713950
+- Latest regression CI passed all 45 tests:
+  https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45072512145
+- Instagram's first download failed because the YouTube 480p selector rejected
+  its native resolution. A platform-specific HTTPS format selector fixed it; the
+  real NASA fixture downloaded and passed ffprobe. Size/duration limits remain.
+- Real Instagram smoke passed: 32.413651 seconds, six actual frames, local
+  transcription/vision pipeline completed. Run took about ten minutes on a
+  standard GitHub-hosted runner:
+  https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45071931597
+- Full Instagram source-to-analysis-email integration test passed; the actual
+  email and 91,615-byte frame sheet were independently read from Gmail:
+  https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45072593685
 
-Before activation: verify the existing Resend
-key's read/send scopes through the authorized bridge, resolve source access on an authorized runner, pass a real
-platform smoke test and confirm delivery of the resulting email. Do not claim the
-system is fully operational until those checks actually pass.
+Before activation: pass the real platform smoke test and confirm delivery of the
+resulting analysis email. Enable only the platform that passed. Do not claim
+YouTube works while its source-authorization check fails.
+
+### Report grounding
+
+Review of the first delivered NASA report found a radio phrase incorrectly
+interpreted as a claim about safety. The vision model now receives only the six
+frames and their exact timestamps. Speech recognition is attached in its own
+explicitly fallible section, not converted into visual facts by the small model.
+Technical test deliveries have a separate run-specific idempotency key and TEST
+subject; ordinary source deduplication is unchanged.
