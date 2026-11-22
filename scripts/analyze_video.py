@@ -36,7 +36,10 @@ def check_remote_url(raw, resolver=socket.getaddrinfo):
     if (u.scheme != 'https' or u.username or u.password or port not in (None, 443)
             or not any(host == d or host.endswith('.' + d) for d in NETWORK_DOMAINS)):
         raise VideoError('unsafe_download_url')
-    addresses = resolver(host, 443, type=socket.SOCK_STREAM)
+    try:
+        addresses = resolver(host, 443, type=socket.SOCK_STREAM)
+    except OSError:
+        raise VideoError('download_network_error') from None
     if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
         raise VideoError('unsafe_download_address')
 
@@ -59,6 +62,7 @@ class QuietLogger:
 def download(source, folder):
     from yt_dlp import YoutubeDL
     from yt_dlp.networking import _urllib
+    from yt_dlp.networking.exceptions import NoSupportingHandlers
     from yt_dlp.utils import DownloadError
 
     class SafeRedirect(_urllib.RedirectHandler):
@@ -115,6 +119,11 @@ def download(source, folder):
                 raise VideoError('carousel_or_playlist_unsupported')
             match(info)
             ydl.process_info(info)
+    except NoSupportingHandlers as error:
+        for cause in error.unexpected_errors:
+            if isinstance(cause, VideoError):
+                raise cause from None
+        raise VideoError('download_network_error') from None
     except DownloadError:
         # Do not leak signed CDN URLs or convert missing media into a fake summary.
         raise VideoError('source_unavailable') from None

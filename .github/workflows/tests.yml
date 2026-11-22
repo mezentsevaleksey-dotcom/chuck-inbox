@@ -6,6 +6,25 @@ on:
 permissions:
   contents: read
 jobs:
+  configuration-audit:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/feature/video-analysis' &&
+      github.repository == 'mezentsevaleksey-dotcom/chuck-inbox'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report presence only, never secret values
+        env:
+          HAS_RESEND_API_KEY: ${{ secrets.RESEND_API_KEY != '' }}
+          HAS_CHUCK_INBOX_EMAIL: ${{ secrets.CHUCK_INBOX_EMAIL != '' }}
+          HAS_START_AT: ${{ vars.VIDEO_ANALYSIS_START_AT != '' }}
+          ENABLED: ${{ vars.VIDEO_ANALYSIS_ENABLED == 'true' }}
+        run: |
+          python - <<'PY'
+          import os
+          for name in ('HAS_RESEND_API_KEY', 'HAS_CHUCK_INBOX_EMAIL', 'HAS_START_AT', 'ENABLED'):
+              print(name + '=' + os.environ[name])
+          PY
   tests:
     runs-on: ubuntu-24.04
     steps:

@@ -83,6 +83,12 @@ class URLTests(unittest.TestCase):
         for duration in [0,float('nan'),float('inf'),-1]:
             with self.assertRaises(VideoError): frame_times(duration)
 
+    def test_dns_failure_is_fixed_retryable_code(self):
+        def unavailable(*a, **kw):
+            raise socket.gaierror('private diagnostic')
+        with self.assertRaisesRegex(VideoError, '^download_network_error$'):
+            check_remote_url('https://www.youtube.com/x', unavailable)
+
 
 class InboxTests(unittest.TestCase):
     def plan(self, client, start=None):
