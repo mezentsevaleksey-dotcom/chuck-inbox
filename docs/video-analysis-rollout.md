@@ -118,7 +118,7 @@ bridge. The trusted branch configuration audit prints variable-presence booleans
 
 ## Session verification record (2026-11-23, Moscow time)
 
-**Not activated. Instagram source-to-analysis-email test passed; a report-grounding improvement is being verified.**
+**Instagram active. YouTube remains disabled: real source download requires authorization.**
 
 - No previous Actions runs existed at the start. Real CI runs are now recorded.
 - Latest validation: 28 Python tests + 15 bridge authorization/delivery
@@ -128,7 +128,9 @@ bridge. The trusted branch configuration audit prints variable-presence booleans
   byte-for-byte unchanged relative to the original main. Only a separate protected
   video endpoint is added.
 - GitHub settings confirm no repository/environment secrets. They are no longer
-  required for mail access. `VIDEO_ANALYSIS_ENABLED=false` is saved; start unset.
+  required for mail access. `VIDEO_ANALYSIS_ENABLED=true`, `VIDEO_ANALYSIS_PLATFORMS=instagram`, and
+  `VIDEO_ANALYSIS_START_AT=2026-11-22T21:42:35Z` are saved and verified in GitHub.
+  The source cutoff is 23 November 2026, 00:42:35 Moscow time.
 - Owner authorized Vercel team `chuck20`. Existing production email key and address
   exist as non-readable sensitive values. Neither was revealed, replaced or rotated.
 - The baseline production `/api/webhook` health check returned HTTP 200, v1.7.
@@ -161,8 +163,8 @@ bridge. The trusted branch configuration audit prints variable-presence booleans
 - Technical email delivery passed and the message was independently found in
   Gmail. This is delivery evidence, not video-analysis evidence:
   https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45071713950
-- Latest regression CI passed all 45 tests:
-  https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45072512145
+- Latest regression CI passed all 47 tests:
+  https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45073567744
 - Instagram's first download failed because the YouTube 480p selector rejected
   its native resolution. A platform-specific HTTPS format selector fixed it; the
   real NASA fixture downloaded and passed ffprobe. Size/duration limits remain.
@@ -174,9 +176,9 @@ bridge. The trusted branch configuration audit prints variable-presence booleans
   email and 91,615-byte frame sheet were independently read from Gmail:
   https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45072593685
 
-Before activation: pass the real platform smoke test and confirm delivery of the
-resulting analysis email. Enable only the platform that passed. Do not claim
-YouTube works while its source-authorization check fails.
+Instagram activation followed a successful real platform smoke, complete result
+email delivery and normal inbox-planning check. YouTube is excluded. No claim of
+working YouTube extraction is made while its authorization check fails.
 
 ### Report grounding
 
@@ -186,3 +188,17 @@ frames and their exact timestamps. Speech recognition is attached in its own
 explicitly fallible section, not converted into visual facts by the small model.
 Technical test deliveries have a separate run-specific idempotency key and TEST
 subject; ordinary source deduplication is unchanged.
+
+The revised frame-only report passed on the same public fixture. Log evidence:
+`Analysis email delivered; status=complete`. The email was independently read in
+Gmail; its observations match the launch/frame sequence, and the incorrect safety
+claim is absent. The speech transcript remains fallible and clearly separated.
+https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45073400270
+
+Normal inbox planning passed on the latest runtime commit with the saved variables:
+`Queued video count: 0`; model installation/inference were correctly skipped.
+https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45073661237
+
+After these checks, automatic scheduling was enabled for Instagram only. The first
+scheduled tick is not used as test evidence; the normal path was explicitly run
+and the saved enablement/platform/start variables were verified in GitHub.
