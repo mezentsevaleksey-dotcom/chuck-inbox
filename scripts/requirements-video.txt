@@ -1,6 +1,8 @@
 # CPU-only torch/torchvision are installed separately from the official PyTorch index.
 yt-dlp[default]==2026.10.26
 faster-whisper==1.2.1
+# PyAV 19 removed metadata_errors used by faster-whisper 1.2.1.
+av==16.0.1
 transformers==4.57.3
 accelerate==1.12.0
 Pillow==12.0.0

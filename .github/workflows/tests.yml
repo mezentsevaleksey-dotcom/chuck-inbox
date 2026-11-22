@@ -44,5 +44,6 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/feature/video-analysis' &&
       github.repository == 'mezentsevaleksey-dotcom/chuck-inbox' &&
-      github.event.repository.private == false
+      github.event.repository.private == false &&
+      contains(github.event.head_commit.message, '[video-smoke]')
     uses: ./.github/workflows/video-smoke.yml

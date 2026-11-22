@@ -87,8 +87,12 @@ python scripts/check_smoke.py video-output/report.json
 transcript mentioning elephants and trunks/noses, and a completed local model
 analysis. `unavailable` is a **failed** smoke test, not a success.
 
-The branch's push workflow runs this public smoke test without any secrets.
-Production secret use is restricted to `main`, separate from PR test jobs.
+The branch can run the public smoke test without secrets when a push commit
+message includes `[video-smoke]`. Routine commits do not repeatedly attempt a
+platform that requested authorization. The public smoke workflow is also callable
+manually after it is registered on the default branch. Production secret values
+are restricted to `main`; the trusted branch's configuration audit prints only
+boolean presence checks, never values.
 
 ## Official references
 
@@ -101,13 +105,42 @@ Production secret use is restricted to `main`, separate from PR test jobs.
 
 ## Session verification record (2026-11-22)
 
-- PR #1 and its `feature/video-analysis` branch inspected; no prior Actions runs.
-- GitHub connector reports repository admin/push access. Browser has no signed-in
-  GitHub session, so secret names/values and Actions settings are not yet verified.
-- Vercel team `chuck20` returns 403. Team authorization must be granted by owner
-  before its existing environment configuration can be inspected.
-- Local Python tests: 21 passed. Node forwarding regression tests: 4 passed.
-- Local real YouTube attempt could not resolve the YouTube hostname in the
-  execution environment. No claim of a successful real-video analysis yet.
-- Activation and email delivery are **not yet verified**. Leave analysis disabled
-  until the actual smoke and delivery checks above succeed.
+**Not activated. PR #1 remains draft.**
+
+- No previous Actions runs existed at the start. Real CI runs are now recorded.
+- Latest local validation: 23 Python tests + 4 Node forwarding regression tests
+  passed; installed dependency consistency check passed. The same regression
+  suite passes on GitHub-hosted Ubuntu runners.
+- Vercel preview build succeeds. All `api/*` handlers and `package.json` are
+  byte-for-byte unchanged relative to `main`.
+- Actions configuration audit returned `HAS_RESEND_API_KEY=false`,
+  `HAS_CHUCK_INBOX_EMAIL=false`, `HAS_START_AT=false`, `ENABLED=false`.
+  These secrets/variables are unavailable to the workflow. This does not inventory
+  any separately protected GitHub environments.
+- Vercel team `chuck20` returns 403 and needs owner team authorization to inspect
+  the existing environment. No key was created, replaced, exposed or rotated.
+- Real YouTube smoke on the fixed public clip failed with
+  `source_auth_required`. It is not a successful download/analysis. Repeated
+  attempts stopped. No account cookies or paid proxies were added.
+  Evidence: https://github.com/mezentsevaleksey-dotcom/chuck-inbox/actions/runs/45060716601
+- Local network cannot resolve YouTube. This is separate from the GitHub runner's
+  platform-authorization response.
+- Real local vision test: official public Qwen sample `space_woaudio.mp4`,
+  36,698,404 bytes, 177.96 seconds, no audio. Extracted six actual frames;
+  Qwen3-VL-2B produced a Russian analysis on CPU in 233 seconds including model
+  setup. Broad scenes (people on a space station and a control room) matched the
+  samples, but fine flag/camera descriptions were imperfect. Output is explicitly
+  labelled preliminary machine analysis, with frames attached for verification.
+  Source: https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-VL/space_woaudio.mp4
+- Real speech test: OpenAI Whisper's public `tests/jfk.flac` fixture,
+  1,152,693 bytes. faster-whisper small recognized English and the expected
+  ask/country speech. This exposed an incompatible PyAV 19 API; `av==16.0.1`
+  was pinned and the speech test then passed.
+  Source: https://github.com/openai/whisper/blob/main/tests/jfk.flac
+- Instagram end-to-end download and real Resend email delivery remain unverified.
+  Successful local model tests do not prove YouTube/Instagram extraction works.
+
+Before activation: authorize configuration access, verify the existing Resend
+key's read/send scopes, resolve source access on an authorized runner, pass a real
+platform smoke test and confirm delivery of the resulting email. Do not claim the
+system is fully operational until those checks actually pass.

@@ -177,7 +177,7 @@ def pending(client, now, start_at):
 
 def child_env():
     # Media extraction and model inference never receive email or GitHub secrets.
-    allowed = ('PATH', 'HOME', 'TMPDIR', 'LANG', 'SYSTEMROOT', 'HF_HOME')
+    allowed = ('PATH', 'HOME', 'TMPDIR', 'LANG', 'SYSTEMROOT', 'HF_HOME', 'LD_LIBRARY_PATH')
     env = {k: os.environ[k] for k in allowed if k in os.environ}
     env.update({'HF_HUB_DISABLE_TELEMETRY': '1', 'DO_NOT_TRACK': '1',
                 'TOKENIZERS_PARALLELISM': 'false', 'OMP_NUM_THREADS': '4'})

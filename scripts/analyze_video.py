@@ -204,7 +204,7 @@ def transcribe(path, folder, has_audio):
     audio = folder / 'audio.wav'
     run('ffmpeg', '-nostdin', '-v', 'error', '-y', '-protocol_whitelist', 'file,pipe',
         '-i', str(path), '-vn', '-ac', '1', '-ar', '16000', str(audio))
-    model_path = snapshot_download(SPEECH_MODEL, revision=SPEECH_REVISION,
+    model_path = snapshot_download(SPEECH_MODEL, revision=SPEECH_REVISION, token=False,
                                    allow_patterns=['model.bin', 'config.json', 'tokenizer.json', 'vocabulary.*'])
     model = WhisperModel(model_path, device='cpu', compute_type='int8', cpu_threads=4)
     segments, info = model.transcribe(str(audio), beam_size=3, vad_filter=True, condition_on_previous_text=False)
@@ -220,10 +220,10 @@ def visual_analysis(frames, transcript):
     import torch
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
     torch.set_num_threads(4)
-    processor = AutoProcessor.from_pretrained(VISION_MODEL, revision=VISION_REVISION, trust_remote_code=False)
+    processor = AutoProcessor.from_pretrained(VISION_MODEL, revision=VISION_REVISION, trust_remote_code=False, token=False)
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         VISION_MODEL, revision=VISION_REVISION, dtype=torch.bfloat16,
-        device_map='cpu', attn_implementation='sdpa', trust_remote_code=False)
+        device_map='cpu', attn_implementation='sdpa', trust_remote_code=False, token=False)
     transcript_text = '\n'.join(f"[{s['start']:.1f}–{s['end']:.1f}] {s['text']}" for s in transcript)
     instructions = (
         'Составь краткий разбор видео на русском. Перед тобой только шесть выборочных кадров '
@@ -273,7 +273,7 @@ def analyze(url, folder):
             f'Просмотрено выборочных кадров: {len(frames)}. Полный видеоряд не просматривался.\n'
             'Модели: Qwen3-VL-2B, faster-whisper small; вычисления на CPU, без платного API.\n'
             'Машинный разбор может содержать ошибки; сверяйте детали с приложенными кадрами.\n\n'
-            f'РАЗБОР\n{analysis}\n\nРАСШИФРОВКА (язык: {language or "нет"})\n{speech}')
+            f'ПРЕДВАРИТЕЛЬНЫЙ МАШИННЫЙ РАЗБОР\n{analysis}\n\nРАСШИФРОВКА (язык: {language or "нет"})\n{speech}')
     return {'status': 'complete', 'url': source, 'duration': duration, 'frames': len(frames),
             'transcript': transcript, 'text': text}
 
