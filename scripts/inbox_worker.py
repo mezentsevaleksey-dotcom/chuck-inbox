@@ -17,7 +17,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, parse_qs
 
 from video_common import VideoError, extract_urls, identity
 
@@ -29,6 +29,7 @@ LOOKBACK_HOURS = 20  # deliberately shorter than Resend's 24-hour idempotency TT
 MAX_ANALYSES_PER_DAY = 10
 MAX_TEAM_EMAILS_PER_DAY = 90  # leave headroom for the existing forwarder
 MAX_JOBS_PER_RUN = 1
+BRIDGE_URL = 'https://chuck-inbox.vercel.app/api/video-inbox'
 
 
 def timestamp(raw):
@@ -132,6 +133,91 @@ class Resend:
         return result['id']
 
 
+class Bridge(Resend):
+    """Use short-lived GitHub identity; no email credential leaves Vercel."""
+    def __init__(self):
+        self.recipient = 'inbox@chuck.invalid'
+        self.opener = urllib.request.build_opener(NoRedirect())
+
+    def oidc(self):
+        source = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', '')
+        token = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_TOKEN', '')
+        u = urlsplit(source)
+        if (u.scheme != 'https' or not (u.hostname or '').endswith('.actions.githubusercontent.com')
+                or u.username or u.password or u.port not in (None, 443) or not token):
+            raise VideoError('github_identity_unavailable')
+        query = parse_qs(u.query)
+        query['audience'] = [BRIDGE_URL]
+        target = u._replace(query=urlencode(query, doseq=True)).geturl()
+        try:
+            req = urllib.request.Request(target, headers={'Authorization': 'Bearer ' + token})
+            with self.opener.open(req, timeout=30) as response:
+                data = json.loads(response.read(64000))
+            result = data.get('value')
+            if not isinstance(result, str) or not 10 < len(result) < 16000:
+                raise ValueError()
+            return result
+        except (urllib.error.URLError, ValueError, TimeoutError):
+            raise VideoError('github_identity_unavailable') from None
+
+    def call(self, body):
+        req = urllib.request.Request(BRIDGE_URL, data=json.dumps(body, ensure_ascii=False).encode(),
+            headers={'Authorization': 'Bearer ' + self.oidc(), 'Content-Type': 'application/json'})
+        try:
+            with self.opener.open(req, timeout=180) as response:
+                raw = response.read(5 * 1024 * 1024 + 1)
+            if len(raw) > 5 * 1024 * 1024:
+                raise VideoError('bridge_response_too_large')
+            return json.loads(raw)
+        except urllib.error.HTTPError as error:
+            try:
+                code = json.loads(error.read(1000)).get('error')
+            except (ValueError, AttributeError):
+                code = None
+            status = error.code
+            error.close()
+            allowed = {'unauthorized', 'resend_read_access_required', 'email_not_configured',
+                       'source_mismatch', 'source_expired', 'daily_limit', 'resend_unavailable'}
+            raise VideoError(code if code in allowed else 'bridge_http_' + str(status)) from None
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            raise VideoError('bridge_unavailable') from None
+
+    def request(self, path, body=None, idem=None):
+        if body is not None or idem:
+            raise VideoError('unsupported_bridge_operation')
+        u = urlsplit(path)
+        if u.path == '/emails':
+            query = parse_qs(u.query)
+            return self.call({'action': 'list', 'after': query.get('after', [None])[0]})
+        match = re.fullmatch(r'/emails/([0-9a-f-]{36})', u.path)
+        if match and not u.query:
+            return self.call({'action': 'read', 'id': match.group(1)})
+        raise VideoError('invalid_api_path')
+
+    def deliver(self, job, report, contact_sheet=None):
+        body = {'action': 'deliver', 'job': job, 'report': report}
+        if contact_sheet and Path(contact_sheet).is_file():
+            data = Path(contact_sheet).read_bytes()
+            if len(data) > 2 * 1024 * 1024:
+                raise VideoError('contact_sheet_too_large')
+            body['frames'] = base64.b64encode(data).decode()
+        result = self.call(body)
+        if not result.get('id'):
+            raise VideoError('email_not_accepted')
+        return result['id']
+
+    def verify_delivery(self, email_id):
+        for attempt in range(6):
+            status = self.call({'action': 'delivery-status', 'id': email_id}).get('status')
+            if status in ('delivered', 'opened', 'clicked'):
+                return
+            if status in ('bounced', 'failed', 'suppressed'):
+                raise VideoError('analysis_email_delivery_failed')
+            if attempt < 5:
+                time.sleep(3)
+        raise VideoError('email_delivery_not_confirmed')
+
+
 def is_ours(row, recipient):
     return (row.get('from') == SENDER and
             [str(x).lower() for x in row.get('to', [])] == [recipient.lower()])
@@ -201,20 +287,28 @@ def process_job(client, job):
         report = json.loads(report_file.read_text(encoding='utf-8'))
         if result.returncode or report.get('status') not in ('complete', 'unavailable'):
             raise VideoError('worker_failed')
-        client.deliver(job, report['text'], Path(folder) / 'sampled-frames.jpg')
+        email_id = client.deliver(job, report['text'], Path(folder) / 'sampled-frames.jpg')
+        if isinstance(client, Bridge):
+            client.verify_delivery(email_id)
         # Counts/status only: no URLs, transcript, title, user identifiers or keys.
-        print('Analysis email accepted by Resend; status=' + report['status'])
+        print('Analysis email delivered; status=' + report['status'] if isinstance(client, Bridge)
+              else 'Analysis email accepted by Resend; status=' + report['status'])
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['plan', 'run', 'check'])
+    parser.add_argument('command', choices=['plan', 'run', 'check', 'delivery-test'])
     parser.add_argument('--plan', type=Path)
     args = parser.parse_args()
-    client = Resend()
+    client = Bridge()
     if args.command == 'check':
-        client.recent(dt.datetime.now(UTC) - dt.timedelta(minutes=5))
-        print('Resend list access verified; recipient configured. Send access requires a delivery test.')
+        client.call({'action': 'check'})
+        print('GitHub identity and Resend read access verified; recipient stays in Vercel.')
+        return
+    if args.command == 'delivery-test':
+        result = client.call({'action': 'delivery-test'})
+        client.verify_delivery(result['id'])
+        print('Technical test email: delivered. This is not a video analysis test.')
         return
     start = timestamp(os.environ.get('VIDEO_ANALYSIS_START_AT', ''))
     if args.command == 'plan':

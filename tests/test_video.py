@@ -11,7 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from video_common import VideoError, canonical_url, extract_urls, identity
 from analyze_video import check_remote_url, frame_times, download_error_code
-from inbox_worker import (Resend, SENDER, RESULT_PREFIX, SOURCE_PREFIX, child_env,
+from inbox_worker import (Resend, Bridge, SENDER, RESULT_PREFIX, SOURCE_PREFIX, child_env,
                           pending, process_job, timestamp)
 
 NOW = dt.datetime(2026, 11, 22, 12, tzinfo=dt.timezone.utc)
@@ -148,9 +148,25 @@ class InboxTests(unittest.TestCase):
 
     def test_subprocess_has_no_secrets(self):
         with patch.dict(os.environ,{'RESEND_API_KEY':'secret','CHUCK_INBOX_EMAIL':'owner@example.org',
-                                    'GITHUB_TOKEN':'secret','OPENAI_API_KEY':'secret'},clear=True):
+                                    'GITHUB_TOKEN':'secret','OPENAI_API_KEY':'secret',
+                                    'ACTIONS_ID_TOKEN_REQUEST_TOKEN':'secret','ACTIONS_ID_TOKEN_REQUEST_URL':'private'},clear=True):
             env=child_env()
-        self.assertFalse(any(k in env for k in ['RESEND_API_KEY','GITHUB_TOKEN','OPENAI_API_KEY','CHUCK_INBOX_EMAIL']))
+        self.assertFalse(any(k in env for k in ['RESEND_API_KEY','GITHUB_TOKEN','OPENAI_API_KEY','CHUCK_INBOX_EMAIL',
+                                               'ACTIONS_ID_TOKEN_REQUEST_TOKEN','ACTIONS_ID_TOKEN_REQUEST_URL']))
+
+    def test_bridge_rejects_identity_token_redirection(self):
+        client=Bridge()
+        for endpoint in ['http://token.actions.githubusercontent.com/x','https://attacker.example/x',
+                         'https://user:password@token.actions.githubusercontent.com/x']:
+            with patch.dict(os.environ,{'ACTIONS_ID_TOKEN_REQUEST_URL':endpoint,'ACTIONS_ID_TOKEN_REQUEST_TOKEN':'private'}):
+                with self.assertRaisesRegex(VideoError,'github_identity_unavailable'): client.oidc()
+
+    def test_bridge_delivery_checks_actual_status(self):
+        client=Bridge()
+        with patch.object(client,'call',side_effect=[{'status':'sent'},{'status':'delivered'}]), patch('inbox_worker.time.sleep'):
+            client.verify_delivery('test')
+        with patch.object(client,'call',return_value={'status':'bounced'}):
+            with self.assertRaisesRegex(VideoError,'delivery_failed'): client.verify_delivery('test')
 
     def test_pagination(self):
         with patch.dict(os.environ,{'RESEND_API_KEY':'test','CHUCK_INBOX_EMAIL':'owner@example.org'}):

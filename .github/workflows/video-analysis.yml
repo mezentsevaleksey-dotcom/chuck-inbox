@@ -9,7 +9,7 @@ on:
         required: true
         default: check
         type: choice
-        options: [check, inbox, public-smoke]
+        options: [check, delivery-test, inbox, public-smoke]
 permissions:
   contents: read
 concurrency:
@@ -17,6 +17,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   inbox:
+    permissions:
+      contents: read
+      id-token: write
     if: >-
       github.repository == 'mezentsevaleksey-dotcom/chuck-inbox' &&
       github.event.repository.private == false &&
@@ -38,13 +41,11 @@ jobs:
       - name: Check or select new links (no content in logs)
         id: plan
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          CHUCK_INBOX_EMAIL: ${{ secrets.CHUCK_INBOX_EMAIL }}
           VIDEO_ANALYSIS_START_AT: ${{ vars.VIDEO_ANALYSIS_START_AT }}
           MODE: ${{ inputs.mode || 'inbox' }}
         run: |
-          if [ "$MODE" = check ]; then
-            python scripts/inbox_worker.py check
+          if [ "$MODE" = check ] || [ "$MODE" = delivery-test ]; then
+            python scripts/inbox_worker.py "$MODE"
           else
             python scripts/inbox_worker.py plan --plan "$RUNNER_TEMP/chuck-plan.json"
           fi
@@ -62,8 +63,6 @@ jobs:
       - name: Analyze locally and deliver via the existing email service
         if: steps.plan.outputs.has_work == 'true'
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          CHUCK_INBOX_EMAIL: ${{ secrets.CHUCK_INBOX_EMAIL }}
           VIDEO_ANALYSIS_START_AT: ${{ vars.VIDEO_ANALYSIS_START_AT }}
         run: python scripts/inbox_worker.py run --plan "$RUNNER_TEMP/chuck-plan.json"
       - name: Remove private temporary data

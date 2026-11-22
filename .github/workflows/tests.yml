@@ -15,14 +15,12 @@ jobs:
     steps:
       - name: Report presence only, never secret values
         env:
-          HAS_RESEND_API_KEY: ${{ secrets.RESEND_API_KEY != '' }}
-          HAS_CHUCK_INBOX_EMAIL: ${{ secrets.CHUCK_INBOX_EMAIL != '' }}
           HAS_START_AT: ${{ vars.VIDEO_ANALYSIS_START_AT != '' }}
           ENABLED: ${{ vars.VIDEO_ANALYSIS_ENABLED == 'true' }}
         run: |
           python - <<'PY'
           import os
-          for name in ('HAS_RESEND_API_KEY', 'HAS_CHUCK_INBOX_EMAIL', 'HAS_START_AT', 'ENABLED'):
+          for name in ('HAS_START_AT', 'ENABLED'):
               print(name + '=' + os.environ[name])
           PY
   tests:
@@ -38,7 +36,7 @@ jobs:
         with:
           node-version: '22'
       - run: python -m unittest discover -s tests -v
-      - run: node --test tests/webhook.test.mjs
+      - run: node --test tests/*.test.mjs
   public-smoke:
     if: >-
       github.event_name == 'push' &&

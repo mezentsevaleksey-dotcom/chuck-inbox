@@ -4,8 +4,15 @@
 
 The existing `api/webhook.js` and `api/emailBridge.js` are unchanged. Telegram
 continues sending the original messages and attachments to Gmail using Resend.
-A separate GitHub Actions workflow polls **sent** Resend messages and processes
-only the exact `[Chuck Inbox] ` prefix, sender and configured recipient. It reads
+A separate GitHub Actions workflow polls **sent** Resend messages through the new
+`api/video-inbox.js` endpoint and processes
+only the exact `[Chuck Inbox] ` prefix, sender and configured recipient. The
+endpoint checks a short-lived GitHub OIDC token: issuer, RS256 signature, audience,
+expiry, immutable repository/owner IDs, public visibility, main branch, exact
+workflow path, workflow commit, event and hosted runner. Fork and PR tokens fail.
+Resend credentials and the real recipient never leave Vercel. Other email content
+is redacted, and results can only be sent to the existing recipient for a verified
+source link from a recent original message. This is not a general-purpose mail API. It reads
 links only from the original text/caption, not from quoted reply context.
 
 The worker downloads a public YouTube/Instagram video, samples six timestamped
@@ -24,25 +31,25 @@ Do not change repository visibility or runner class without revisiting cost.
 
 Existing PR: https://github.com/mezentsevaleksey-dotcom/chuck-inbox/pull/1
 
-1. Confirm the existing Resend key can **list/retrieve** sent messages as well as
-   send. Sending-only keys are insufficient. Do not replace or rotate the working
-   production key as part of this setup. Owner authorization is required for a
-   separate key if no suitable existing key is available.
-2. Set GitHub Actions secrets `RESEND_API_KEY` and `CHUCK_INBOX_EMAIL` to the
-   existing service configuration. Never put them in commits, PR text or logs.
-   `OPENAI_API_KEY`, Telegram credentials and Gmail account access are not needed.
-3. Complete the public-video smoke test and a real test delivery before enabling.
-   Check that Resend reports `delivered`, not merely `accepted`.
-4. Merge PR #1 after checks. Workflow dispatch and scheduled workflows must be on
-   `main`. Deploying this PR does not change any Vercel API handler.
-5. Set repository variable `VIDEO_ANALYSIS_START_AT` to the activation timestamp
-   with explicit timezone, for example `2026-11-23T00:00:00+03:00` (choose the actual
-   activation time). This prevents surprise processing of old messages.
-6. Run `Chuck Inbox automatic video analysis` with `mode=check`, then `mode=inbox`
-   on one newly forwarded public video. Inspect the resulting email.
-7. Set `VIDEO_ANALYSIS_ENABLED=true`. Polling runs at minutes 17 and 47 each hour;
-   GitHub may delay scheduled runs. Set it to `false` to stop analysis immediately.
-   Telegram → Gmail remains independent.
+1. Owner access to GitHub and Vercel team `chuck20` is now authorized. The existing
+   production Resend key and recipient are non-readable Vercel secrets. Do not
+   rotate, expose or copy them. No GitHub email secret is needed.
+2. Keep repository variable `VIDEO_ANALYSIS_ENABLED=false` until platform and
+   delivery tests pass. It is already saved and verified in GitHub settings.
+3. Merge PR #1 and deploy the additive OIDC endpoint to test the production-only
+   credentials. The original API handlers and package.json remain unchanged.
+   The new endpoint returns no data without a valid authorized GitHub identity.
+4. Run `Chuck Inbox automatic video analysis` on main with `mode=check`. The
+   existing Resend key must support listing/retrieving sent mail. If it is a
+   sending-only key, owner authorization for a suitable separate key is needed.
+5. Run `mode=delivery-test`. This sends a clearly labelled technical email to the
+   existing recipient and checks Resend's delivery status. It is not video evidence.
+6. Resolve platform source access and pass an actual public-video smoke test.
+7. Set `VIDEO_ANALYSIS_START_AT` to the actual activation timestamp, with explicit
+   timezone. Run `mode=inbox` on a newly forwarded video and inspect delivery.
+8. Set `VIDEO_ANALYSIS_ENABLED=true` only after the full test passes. Polling runs
+   at minutes 17 and 47 each hour; GitHub may delay scheduled runs. Set it to
+   `false` to stop analysis. Telegram → Gmail remains independent.
 
 ## Bounds and recovery
 
@@ -64,7 +71,8 @@ Existing PR: https://github.com/mezentsevaleksey-dotcom/chuck-inbox/pull/1
   paid proxies are used. An inaccessible source gets an explicit failure report,
   never a made-up analysis. Image carousels, live streams and direct Telegram MP4
   attachments are not supported by this URL worker; they are still forwarded.
-- Secrets are only passed to the email parent process. Media and models run in a
+- GitHub OIDC credentials are only available to the email parent process. The
+  Resend key and real recipient stay in Vercel. Media and models run in a
   subprocess with a minimal environment. Logs contain only counts/fixed codes.
   No video, transcript, frames, email address or input links go to public artifacts
   or caches. Temporary media are deleted after processing and on runner teardown.
@@ -76,7 +84,7 @@ Existing PR: https://github.com/mezentsevaleksey-dotcom/chuck-inbox/pull/1
 
 ```
 python -m unittest discover -s tests -v
-node --test tests/webhook.test.mjs
+node --test tests/*.test.mjs
 python -m pip install 'torch==2.9.1' 'torchvision==0.24.1' --index-url https://download.pytorch.org/whl/cpu
 python -m pip install -r scripts/requirements-video.txt
 python scripts/analyze_video.py --url 'https://www.youtube.com/watch?v=jNQXAC9IVRw' --output video-output
@@ -90,9 +98,8 @@ analysis. `unavailable` is a **failed** smoke test, not a success.
 The branch can run the public smoke test without secrets when a push commit
 message includes `[video-smoke]`. Routine commits do not repeatedly attempt a
 platform that requested authorization. The public smoke workflow is also callable
-manually after it is registered on the default branch. Production secret values
-are restricted to `main`; the trusted branch's configuration audit prints only
-boolean presence checks, never values.
+manually after it is registered on the default branch. Only the exact main-branch analysis workflow can use the production
+bridge. The trusted branch configuration audit prints variable-presence booleans.
 
 ## Official references
 
@@ -105,20 +112,22 @@ boolean presence checks, never values.
 
 ## Session verification record (2026-11-22)
 
-**Not activated. PR #1 remains draft.**
+**Not activated. Deployment and end-to-end integration checks in progress.**
 
 - No previous Actions runs existed at the start. Real CI runs are now recorded.
-- Latest local validation: 23 Python tests + 4 Node forwarding regression tests
-  passed; installed dependency consistency check passed. The same regression
+- Latest local validation: 25 Python tests + 12 bridge authorization/delivery
+  tests + 4 Node forwarding regression tests passed; installed dependency consistency check passed. The same regression
   suite passes on GitHub-hosted Ubuntu runners.
-- Vercel preview build succeeds. All `api/*` handlers and `package.json` are
-  byte-for-byte unchanged relative to `main`.
-- Actions configuration audit returned `HAS_RESEND_API_KEY=false`,
-  `HAS_CHUCK_INBOX_EMAIL=false`, `HAS_START_AT=false`, `ENABLED=false`.
-  These secrets/variables are unavailable to the workflow. This does not inventory
-  any separately protected GitHub environments.
-- Vercel team `chuck20` returns 403 and needs owner team authorization to inspect
-  the existing environment. No key was created, replaced, exposed or rotated.
+- Vercel preview build succeeds. All original API handlers and `package.json` are
+  byte-for-byte unchanged relative to the original main. Only a separate protected
+  video endpoint is added.
+- GitHub settings confirm no repository/environment secrets. They are no longer
+  required for mail access. `VIDEO_ANALYSIS_ENABLED=false` is saved; start unset.
+- Owner authorized Vercel team `chuck20`. Existing production email key and address
+  exist as non-readable sensitive values. Neither was revealed, replaced or rotated.
+- The baseline production `/api/webhook` health check returned HTTP 200, v1.7.
+- OIDC bridge checks reject forged/expired/wrong-scope tokens, arbitrary recipients,
+  unrelated source links, quoted-only links, old sources and daily quota overflow.
 - Real YouTube smoke on the fixed public clip failed with
   `source_auth_required`. It is not a successful download/analysis. Repeated
   attempts stopped. No account cookies or paid proxies were added.
@@ -140,7 +149,7 @@ boolean presence checks, never values.
 - Instagram end-to-end download and real Resend email delivery remain unverified.
   Successful local model tests do not prove YouTube/Instagram extraction works.
 
-Before activation: authorize configuration access, verify the existing Resend
-key's read/send scopes, resolve source access on an authorized runner, pass a real
+Before activation: verify the existing Resend
+key's read/send scopes through the authorized bridge, resolve source access on an authorized runner, pass a real
 platform smoke test and confirm delivery of the resulting email. Do not claim the
 system is fully operational until those checks actually pass.
