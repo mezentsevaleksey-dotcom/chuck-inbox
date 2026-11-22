@@ -35,7 +35,10 @@ def check_remote_url(raw, resolver=socket.getaddrinfo):
     host = (u.hostname or '').lower()
     if (u.scheme != 'https' or u.username or u.password or port not in (None, 443)
             or not any(host == d or host.endswith('.' + d) for d in NETWORK_DOMAINS)):
-        raise VideoError('unsafe_download_url')
+        error = VideoError('unsafe_download_url')
+        error.rejected_host = host
+        error.rejected_scheme = u.scheme
+        raise error
     try:
         addresses = resolver(host, 443, type=socket.SOCK_STREAM)
     except OSError:
@@ -293,6 +296,11 @@ def main():
         else:
             report = analyze(url, args.output)
     except VideoError as error:
+        # This diagnostic is restricted to the fixed, non-user public fixture.
+        # Never print source URLs, query strings or credentials.
+        if args.probe_only and url == 'https://www.youtube.com/watch?v=jNQXAC9IVRw' and hasattr(error, 'rejected_host'):
+            print('Rejected public-fixture destination: ' + json.dumps(
+                {'scheme': error.rejected_scheme, 'host': error.rejected_host}))
         if error.code not in UNAVAILABLE:
             raise
         report = {'status': 'unavailable', 'code': error.code,
