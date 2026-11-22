@@ -174,6 +174,15 @@ class InboxTests(unittest.TestCase):
         with patch.object(client,'call',return_value={'status':'bounced'}):
             with self.assertRaisesRegex(VideoError,'delivery_failed'): client.verify_delivery('test')
 
+    def test_bridge_polling_leaves_shared_mail_rate_headroom(self):
+        client=Bridge()
+        with patch.object(client,'oidc',return_value='test-identity'), patch.object(client.opener,'open') as opening, \
+             patch('inbox_worker.time.monotonic',return_value=100), patch('inbox_worker.time.sleep') as pause:
+            opening.return_value.__enter__.return_value.read.return_value=b'{"ok":true}'
+            client.call({'action':'check'})
+            client.call({'action':'check'})
+        self.assertAlmostEqual(pause.call_args_list[1].args[0],1.1)
+
     def test_pagination(self):
         with patch.dict(os.environ,{'RESEND_API_KEY':'test','CHUCK_INBOX_EMAIL':'owner@example.org'}):
             client=Resend()

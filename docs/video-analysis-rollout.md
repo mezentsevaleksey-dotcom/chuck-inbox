@@ -60,6 +60,8 @@ Existing PR: https://github.com/mezentsevaleksey-dotcom/chuck-inbox/pull/1
 - Maximum video duration: 10 minutes. Maximum downloaded data: 150 MiB.
 - Six sampled frames. Small local models can miss detail, misread text or
   hallucinate; the transcript and frame sheet make the output reviewable.
+- Analysis API calls are paced below one per second, including across Vercel
+  requests, to leave shared provider-rate headroom for Telegram forwarding.
 - One video per scheduled run, at most 10 analysis emails per UTC day. Stop
   analysis when the team's sent-message count reaches 90 in that day, leaving
   headroom for the original forwarding service. Existing plan limits still apply.
@@ -119,7 +121,7 @@ bridge. The trusted branch configuration audit prints variable-presence booleans
 **Not activated. Instagram source-to-analysis-email test passed; a report-grounding improvement is being verified.**
 
 - No previous Actions runs existed at the start. Real CI runs are now recorded.
-- Latest validation: 27 Python tests + 15 bridge authorization/delivery
+- Latest validation: 28 Python tests + 15 bridge authorization/delivery
   tests + 4 Node forwarding regression tests passed; installed dependency consistency check passed. The same regression
   suite passes on GitHub-hosted Ubuntu runners.
 - Vercel production build succeeds. All original API handlers and `package.json` are

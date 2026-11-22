@@ -138,6 +138,7 @@ class Bridge(Resend):
     def __init__(self):
         self.recipient = 'inbox@chuck.invalid'
         self.opener = urllib.request.build_opener(NoRedirect())
+        self.next_request = 0
 
     def oidc(self):
         source = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', '')
@@ -161,6 +162,9 @@ class Bridge(Resend):
             raise VideoError('github_identity_unavailable') from None
 
     def call(self, body):
+        # Pace across separate Vercel invocations as well as within each one.
+        # Count from the previous response, after its final Resend API call.
+        time.sleep(max(0, self.next_request - time.monotonic()))
         req = urllib.request.Request(BRIDGE_URL, data=json.dumps(body, ensure_ascii=False).encode(),
             headers={'Authorization': 'Bearer ' + self.oidc(), 'Content-Type': 'application/json'})
         try:
@@ -181,6 +185,8 @@ class Bridge(Resend):
             raise VideoError(code if code in allowed else 'bridge_http_' + str(status)) from None
         except (urllib.error.URLError, TimeoutError, ValueError):
             raise VideoError('bridge_unavailable') from None
+        finally:
+            self.next_request = time.monotonic() + 1.1
 
     def request(self, path, body=None, idem=None):
         if body is not None or idem:
