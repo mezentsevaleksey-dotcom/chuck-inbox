@@ -125,7 +125,11 @@ def download(source, folder):
         'max_filesize': MAX_BYTES, 'match_filter': match,
         'progress_hooks': [guard_progress], 'overwrites': True,
         'outtmpl': str(folder / 'media.%(ext)s'), 'merge_output_format': 'mp4',
-        'format': 'bv*[protocol=https][height<=480]+ba[protocol=https]/b[protocol=https][height<=480]',
+        # Instagram commonly supplies only 720p/1080p (or portrait 1080x1920).
+        # The 480p YouTube selector wrongly rejected these valid direct videos.
+        # Byte/duration/probe resolution limits still apply before inference.
+        'format': ('b[protocol=https]' if (urlsplit(source).hostname or '').endswith('instagram.com')
+                   else 'bv*[protocol=https][height<=480]+ba[protocol=https]/b[protocol=https][height<=480]'),
         'js_runtimes': {'node': {}}, 'remote_components': [],
         'allowed_extractors': ['Youtube', 'Instagram'],
     }
