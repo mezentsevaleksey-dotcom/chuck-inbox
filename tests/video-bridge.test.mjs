@@ -11,7 +11,7 @@ const now = 1795382400;
 const claims = { iss:ISSUER, aud:AUDIENCE, iat:now-10, nbf:now-10, exp:now+290,
   repository:REPOSITORY, repository_id:'1374085463', repository_owner_id:'330305019',
   repository_visibility:'public', ref:'refs/heads/main', ref_type:'branch',
-  sub:`repo:${REPOSITORY}:ref:refs/heads/main`,
+  sub:'repo:mezentsevaleksey-dotcom@330305019/chuck-inbox@1374085463:ref:refs/heads/main',
   workflow_ref:`${REPOSITORY}/.github/workflows/video-analysis.yml@refs/heads/main`,
   workflow_sha:'a'.repeat(40), sha:'a'.repeat(40), event_name:'workflow_dispatch',
   run_id:'12345', runner_environment:'github-hosted' };
@@ -36,6 +36,12 @@ test('forks, PRs, other workflows, repo transfers, wrong audience and stale iden
     {aud:'https://evil.example'}, {iss:'https://evil.example'}, {exp:now-1}, {iat:now-700},
     {nbf:now+100}, {exp:now+10000}, {workflow_sha:'b'.repeat(40)}, {sub:'other'}, {runner_environment:'self-hosted'}])
     assert.throws(()=>verifyToken(jwt(change),[jwk],now),/unauthorized/);
+});
+test('immutable subject includes the exact owner and repository IDs',()=>{
+  for(const sub of [`repo:${REPOSITORY}:ref:refs/heads/main`,
+    'repo:mezentsevaleksey-dotcom@1/chuck-inbox@1374085463:ref:refs/heads/main',
+    'repo:mezentsevaleksey-dotcom@330305019/chuck-inbox@1:ref:refs/heads/main'])
+    assert.throws(()=>verifyToken(jwt({sub}),[jwk],now),/unauthorized/);
 });
 test('untrusted bearer absence is rejected before any network call or secret access',async()=>{
   const res={statusCode:null,body:null,setHeader(){},status(n){this.statusCode=n;return this},json(x){this.body=x;return this}};
