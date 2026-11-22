@@ -9,7 +9,7 @@ on:
         required: true
         default: check
         type: choice
-        options: [check, delivery-test, inbox, public-smoke]
+        options: [check, delivery-test, integration-test, inbox, public-smoke]
 permissions:
   contents: read
 concurrency:
@@ -42,10 +42,13 @@ jobs:
         id: plan
         env:
           VIDEO_ANALYSIS_START_AT: ${{ vars.VIDEO_ANALYSIS_START_AT }}
+          VIDEO_ANALYSIS_PLATFORMS: ${{ vars.VIDEO_ANALYSIS_PLATFORMS || 'instagram' }}
           MODE: ${{ inputs.mode || 'inbox' }}
         run: |
           if [ "$MODE" = check ] || [ "$MODE" = delivery-test ]; then
             python scripts/inbox_worker.py "$MODE"
+          elif [ "$MODE" = integration-test ]; then
+            python scripts/inbox_worker.py seed-test --plan "$RUNNER_TEMP/chuck-plan.json"
           else
             python scripts/inbox_worker.py plan --plan "$RUNNER_TEMP/chuck-plan.json"
           fi

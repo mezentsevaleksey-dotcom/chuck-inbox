@@ -119,6 +119,15 @@ test('delivery test is clearly labelled and limited to manual runs and configure
   assert.deepEqual(sent[0].body.to,[recipient]); assert.match(sent[0].body.subject,/^\[Chuck Inbox Test\]/);
   assert.match(sent[0].body.text,/не разбор видео/);
 });
+test('integration fixture is fixed, labelled as a test, and cannot substitute arbitrary URLs',async()=>{
+  const {run,sent}=setup();
+  await assert.rejects(run({action:'seed-test'},{...claims,event_name:'schedule'}),/manual_test_only/);
+  const job=await run({action:'seed-test',url:'https://attacker.example'},claims);
+  assert.equal(job.url,'https://www.instagram.com/p/DWuGIV2iTcr/');
+  assert.match(sent[0].body.subject,/^\[Chuck Inbox\] TEST /);
+  assert.match(sent[0].body.text,/not a Telegram message/);
+  assert.ok(!sent[0].body.text.includes('attacker.example'));
+});
 test('delivery verification returns only event status of owned result/test emails',async()=>{
   const {run}=setup({statusEmail:{...original,id:resultId,subject:'[Chuck Inbox Test] '+claims.run_id}});
   assert.deepEqual(await run({action:'delivery-status',id:resultId},claims),{status:'delivered'});

@@ -115,6 +115,12 @@ class InboxTests(unittest.TestCase):
         client = FakeResend([email(),email(2,subject=RESULT_PREFIX+identity(URL),age=.5)])
         self.assertEqual(self.plan(client),[])
 
+    def test_only_verified_platforms_can_be_enabled(self):
+        row=email()
+        client=FakeResend([row],{row['id']:'Chuck Inbox - context package item\n\nText/caption:\n'+URL+'\nhttps://www.instagram.com/reel/DWuGIV2iTcr/'})
+        jobs=pending(client,NOW,NOW-dt.timedelta(hours=20),('instagram',))
+        self.assertEqual([j['url'] for j in jobs],['https://www.instagram.com/p/DWuGIV2iTcr/'])
+
     def test_bounced_analysis_is_failure(self):
         client = FakeResend([email(),email(2,subject=RESULT_PREFIX+identity(URL),event='bounced')])
         with self.assertRaisesRegex(VideoError,'delivery_failed'): self.plan(client)
@@ -198,6 +204,15 @@ class InboxTests(unittest.TestCase):
             runner.return_value.returncode=1
             with self.assertRaisesRegex(VideoError,'worker_failed'):
                 process_job(client,{'url':URL,'source_id':'source'})
+
+    def test_integration_test_requires_an_actual_analysis(self):
+        def unavailable(args, **kwargs):
+            Path(args[-1], 'report.json').write_text(json.dumps({'status':'unavailable','text':'Blocked'}))
+            from types import SimpleNamespace
+            return SimpleNamespace(returncode=0)
+        with patch('inbox_worker.subprocess.run', side_effect=unavailable):
+            with self.assertRaisesRegex(VideoError,'integration_test_incomplete'):
+                process_job(FakeResend([]),{'url':URL,'source_id':'source','test_fixture':True})
 
     def test_timezone_required(self):
         with self.assertRaises(VideoError): timestamp('2026-11-22T12:00:00')

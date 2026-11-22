@@ -223,7 +223,7 @@ def is_ours(row, recipient):
             [str(x).lower() for x in row.get('to', [])] == [recipient.lower()])
 
 
-def pending(client, now, start_at):
+def pending(client, now, start_at, platforms=('youtube', 'instagram')):
     cutoff = max(start_at, now - dt.timedelta(hours=LOOKBACK_HOURS))
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     rows = client.recent(min(cutoff, day_start))
@@ -251,6 +251,9 @@ def pending(client, now, start_at):
             continue
         caption = text.split('\nText/caption:\n', 1)[1].split('\nFile:', 1)[0]
         for url in extract_urls(caption):
+            platform = 'instagram' if urlsplit(url).hostname == 'www.instagram.com' else 'youtube'
+            if platform not in platforms:
+                continue
             key = identity(url)
             if key in seen:
                 continue
@@ -287,6 +290,8 @@ def process_job(client, job):
         report = json.loads(report_file.read_text(encoding='utf-8'))
         if result.returncode or report.get('status') not in ('complete', 'unavailable'):
             raise VideoError('worker_failed')
+        if job.get('test_fixture') and report.get('status') != 'complete':
+            raise VideoError('integration_test_incomplete')
         email_id = client.deliver(job, report['text'], Path(folder) / 'sampled-frames.jpg')
         if isinstance(client, Bridge):
             client.verify_delivery(email_id)
@@ -297,7 +302,7 @@ def process_job(client, job):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['plan', 'run', 'check', 'delivery-test'])
+    parser.add_argument('command', choices=['plan', 'run', 'check', 'delivery-test', 'seed-test'])
     parser.add_argument('--plan', type=Path)
     args = parser.parse_args()
     client = Bridge()
@@ -310,18 +315,18 @@ def main():
         client.verify_delivery(result['id'])
         print('Technical test email: delivered. This is not a video analysis test.')
         return
-    start = timestamp(os.environ.get('VIDEO_ANALYSIS_START_AT', ''))
-    if args.command == 'plan':
-        jobs = pending(client, dt.datetime.now(UTC), start)
+    if args.command == 'seed-test':
         if not args.plan:
             raise VideoError('plan_path_required')
-        args.plan.write_text(json.dumps(jobs), encoding='utf-8')
+        job = client.call({'action': 'seed-test'})
+        args.plan.write_text(json.dumps([job]), encoding='utf-8')
         args.plan.chmod(0o600)
         if os.environ.get('GITHUB_OUTPUT'):
             with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-                output.write('has_work=' + ('true' if jobs else 'false') + '\n')
-        print('Queued video count: ' + str(len(jobs)))
-    else:
+                output.write('has_work=true\n')
+        print('One clearly labelled public Instagram test source created; no Telegram message was simulated.')
+        return
+    if args.command == 'run':
         if not args.plan:
             raise VideoError('plan_path_required')
         jobs = json.loads(args.plan.read_text(encoding='utf-8'))
@@ -332,8 +337,21 @@ def main():
                 process_job(client, job)
         finally:
             args.plan.unlink(missing_ok=True)
-
-
+        return
+    start = timestamp(os.environ.get('VIDEO_ANALYSIS_START_AT', ''))
+    if args.command == 'plan':
+        platforms = tuple(os.environ.get('VIDEO_ANALYSIS_PLATFORMS', 'instagram').split(','))
+        if not platforms or any(p not in ('instagram', 'youtube') for p in platforms):
+            raise VideoError('invalid_platform_configuration')
+        jobs = pending(client, dt.datetime.now(UTC), start, platforms)
+        if not args.plan:
+            raise VideoError('plan_path_required')
+        args.plan.write_text(json.dumps(jobs), encoding='utf-8')
+        args.plan.chmod(0o600)
+        if os.environ.get('GITHUB_OUTPUT'):
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                output.write('has_work=' + ('true' if jobs else 'false') + '\n')
+        print('Queued video count: ' + str(len(jobs)))
 if __name__ == '__main__':
     try:
         main()
