@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from video_common import VideoError, canonical_url, extract_urls, identity
-from analyze_video import check_remote_url, frame_times
+from analyze_video import check_remote_url, frame_times, download_error_code
 from inbox_worker import (Resend, SENDER, RESULT_PREFIX, SOURCE_PREFIX, child_env,
                           pending, process_job, timestamp)
 
@@ -88,6 +88,13 @@ class URLTests(unittest.TestCase):
             raise socket.gaierror('private diagnostic')
         with self.assertRaisesRegex(VideoError, '^download_network_error$'):
             check_remote_url('https://www.youtube.com/x', unavailable)
+
+    def test_download_diagnostics_are_redacted(self):
+        self.assertEqual(download_error_code('Sign in to confirm at https://private/link'), 'source_auth_required')
+        self.assertEqual(download_error_code('Requested format is not available https://private/link'), 'source_format_unavailable')
+        self.assertEqual(download_error_code('HTTP Error 503 private'), 'download_network_error')
+        self.assertEqual(download_error_code('HTTP Error 403 private'), 'source_http_403')
+        self.assertEqual(download_error_code('HTTP Error 429 private'), 'source_rate_limited')
 
 
 class InboxTests(unittest.TestCase):

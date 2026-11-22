@@ -59,6 +59,22 @@ class QuietLogger:
     def error(self, *_): pass
 
 
+def download_error_code(message):
+    """Classify internally; never print extractor diagnostics or signed URLs."""
+    text = str(message).lower()
+    if any(x in text for x in ('sign in to confirm', 'login required', 'log in to', 'cookies-from-browser')):
+        return 'source_auth_required'
+    if 'requested format is not available' in text:
+        return 'source_format_unavailable'
+    if any(x in text for x in ('timed out', 'name resolution', 'temporary failure', 'http error 5')):
+        return 'download_network_error'
+    if 'http error 403' in text:
+        return 'source_http_403'
+    if 'http error 429' in text:
+        return 'source_rate_limited'
+    return 'source_unavailable'
+
+
 def download(source, folder):
     from yt_dlp import YoutubeDL
     from yt_dlp.networking import _urllib
@@ -124,9 +140,9 @@ def download(source, folder):
             if isinstance(cause, VideoError):
                 raise cause from None
         raise VideoError('download_network_error') from None
-    except DownloadError:
+    except DownloadError as error:
         # Do not leak signed CDN URLs or convert missing media into a fake summary.
-        raise VideoError('source_unavailable') from None
+        raise VideoError(download_error_code(error)) from None
     media = [p for p in folder.glob('media.*') if p.suffix.lower() in ('.mp4', '.webm', '.mkv', '.mov')]
     if len(media) != 1 or not media[0].stat().st_size:
         raise VideoError('source_unavailable')
@@ -236,6 +252,7 @@ def visual_analysis(frames, transcript):
 UNAVAILABLE = {
     'source_unavailable', 'video_too_long', 'video_too_large', 'live_video_unsupported',
     'carousel_or_playlist_unsupported', 'not_a_video', 'video_too_long_or_invalid',
+    'source_auth_required', 'source_format_unavailable', 'source_http_403',
 }
 
 
@@ -264,11 +281,17 @@ def main():
     choice.add_argument('--url', help='Public smoke-test only; do not put private links in Actions inputs')
     choice.add_argument('--request', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--probe-only', action='store_true', help='Download/probe only; not an analysis success')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     url = args.url if args.url else json.loads(args.request.read_text(encoding='utf-8'))['url']
     try:
-        report = analyze(url, args.output)
+        if args.probe_only:
+            media, _ = download(canonical_url(url), args.output)
+            duration, _ = inspect_media(media)
+            report = {'status': 'downloaded', 'duration': duration}
+        else:
+            report = analyze(url, args.output)
     except VideoError as error:
         if error.code not in UNAVAILABLE:
             raise
@@ -293,6 +316,6 @@ if __name__ == '__main__':
     except VideoError as error:
         print('Video processing failed: ' + error.code, file=sys.stderr)
         sys.exit(1)
-    except Exception:
-        print('Video processing failed: internal_error (details suppressed)', file=sys.stderr)
+    except Exception as error:
+        print('Video processing failed: internal_error_' + type(error).__name__, file=sys.stderr)
         sys.exit(1)
