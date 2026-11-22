@@ -1,0 +1,46 @@
+name: Public video smoke test
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-video:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Install and verify public downloader before installing models
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python -m pip install --disable-pip-version-check 'yt-dlp[default]==2026.10.26'
+          python scripts/analyze_video.py --probe-only --url 'https://www.youtube.com/watch?v=jNQXAC9IVRw' --output "$RUNNER_TEMP/public-video-test"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'public-video-test/report.json').read_text())
+          assert report['status'] == 'downloaded', 'Download failed: ' + report.get('code', 'unknown')
+          PY
+      - name: Install CPU models
+        run: |
+          python -m pip install --disable-pip-version-check 'torch==2.9.1' 'torchvision==0.24.1' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --disable-pip-version-check -r scripts/requirements-video.txt
+      - name: Download and analyze a real public YouTube video
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          DO_NOT_TRACK: '1'
+        run: |
+          python scripts/analyze_video.py --url 'https://www.youtube.com/watch?v=jNQXAC9IVRw' --output "$RUNNER_TEMP/public-video-test"
+          python scripts/check_smoke.py "$RUNNER_TEMP/public-video-test/report.json"
+      # Deliberately no upload-artifact or cache: the production path must not
+      # accidentally publish personal video links, frames or transcripts.

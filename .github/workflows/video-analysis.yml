@@ -1,0 +1,76 @@
+name: Chuck Inbox automatic video analysis
+on:
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Check access, process inbox, or test the fixed public video
+        required: true
+        default: check
+        type: choice
+        options: [check, delivery-test, inbox, public-smoke]
+permissions:
+  contents: read
+concurrency:
+  group: chuck-video-analysis
+  cancel-in-progress: false
+jobs:
+  inbox:
+    permissions:
+      contents: read
+      id-token: write
+    if: >-
+      github.repository == 'mezentsevaleksey-dotcom/chuck-inbox' &&
+      github.event.repository.private == false &&
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'schedule' && vars.VIDEO_ANALYSIS_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode != 'public-smoke'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      DO_NOT_TRACK: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Check or select new links (no content in logs)
+        id: plan
+        env:
+          VIDEO_ANALYSIS_START_AT: ${{ vars.VIDEO_ANALYSIS_START_AT }}
+          MODE: ${{ inputs.mode || 'inbox' }}
+        run: |
+          if [ "$MODE" = check ] || [ "$MODE" = delivery-test ]; then
+            python scripts/inbox_worker.py "$MODE"
+          else
+            python scripts/inbox_worker.py plan --plan "$RUNNER_TEMP/chuck-plan.json"
+          fi
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: steps.plan.outputs.has_work == 'true'
+        with:
+          node-version: '22'
+      - name: Install CPU tools only when a new video is waiting
+        if: steps.plan.outputs.has_work == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python -m pip install --disable-pip-version-check 'torch==2.9.1' 'torchvision==0.24.1' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --disable-pip-version-check -r scripts/requirements-video.txt
+      - name: Analyze locally and deliver via the existing email service
+        if: steps.plan.outputs.has_work == 'true'
+        env:
+          VIDEO_ANALYSIS_START_AT: ${{ vars.VIDEO_ANALYSIS_START_AT }}
+        run: python scripts/inbox_worker.py run --plan "$RUNNER_TEMP/chuck-plan.json"
+      - name: Remove private temporary data
+        if: always()
+        run: rm -f "$RUNNER_TEMP/chuck-plan.json"
+  public-smoke:
+    if: >-
+      github.repository == 'mezentsevaleksey-dotcom/chuck-inbox' &&
+      github.event.repository.private == false &&
+      github.event_name == 'workflow_dispatch' && inputs.mode == 'public-smoke'
+    uses: ./.github/workflows/video-smoke.yml
