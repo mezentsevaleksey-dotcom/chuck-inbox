@@ -229,8 +229,9 @@ def is_ours(row, recipient):
             [str(x).lower() for x in row.get('to', [])] == [recipient.lower()])
 
 
-def pending(client, now, start_at, platforms=('youtube', 'instagram')):
-    cutoff = max(start_at, now - dt.timedelta(hours=LOOKBACK_HOURS))
+def pending(client, now, start_at, platforms=('youtube', 'instagram'), *, manual_recent=False):
+    cutoff = max(start_at, now - dt.timedelta(hours=72 if manual_recent else LOOKBACK_HOURS))
+    job_limit = 3 if manual_recent else MAX_JOBS_PER_RUN
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     rows = client.recent(min(cutoff, day_start))
     ours = [r for r in rows if is_ours(r, client.recipient)]
@@ -245,7 +246,9 @@ def pending(client, now, start_at, platforms=('youtube', 'instagram')):
     done = {r['subject'][len(RESULT_PREFIX):] for r in results}
     jobs, seen = [], set(done)
     source_rows = sorted((r for r in ours if r.get('subject', '').startswith(SOURCE_PREFIX)
-                          and timestamp(r['created_at']) >= cutoff), key=lambda r: r['created_at'])
+                          and not r.get('subject', '').startswith(SOURCE_PREFIX + 'TEST ')
+                          and timestamp(r['created_at']) >= cutoff), key=lambda r: r['created_at'],
+                         reverse=manual_recent)
     for row in source_rows:
         content = client.request('/emails/' + row['id'])
         text = content.get('text') or ''
@@ -263,9 +266,10 @@ def pending(client, now, start_at, platforms=('youtube', 'instagram')):
             key = identity(url)
             if key in seen:
                 continue
-            jobs.append({'url': url, 'source_id': row['id'], 'source_created_at': row['created_at']})
+            jobs.append({'url': url, 'source_id': row['id'], 'source_created_at': row['created_at'],
+                         **({'manual_recent': True} if manual_recent else {})})
             seen.add(key)
-            if len(jobs) >= MAX_JOBS_PER_RUN:
+            if len(jobs) >= job_limit:
                 return jobs
     return jobs
 
@@ -308,7 +312,7 @@ def process_job(client, job):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['plan', 'run', 'check', 'delivery-test', 'seed-test'])
+    parser.add_argument('command', choices=['plan', 'run', 'check', 'delivery-test', 'seed-test', 'recent-instagram'])
     parser.add_argument('--plan', type=Path)
     args = parser.parse_args()
     client = Bridge()
@@ -336,7 +340,8 @@ def main():
         if not args.plan:
             raise VideoError('plan_path_required')
         jobs = json.loads(args.plan.read_text(encoding='utf-8'))
-        if len(jobs) > MAX_JOBS_PER_RUN:
+        manual_recent = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch' and jobs and all(j.get('manual_recent') is True for j in jobs)
+        if len(jobs) > (3 if manual_recent else MAX_JOBS_PER_RUN):
             raise VideoError('too_many_jobs')
         try:
             for job in jobs:
@@ -344,12 +349,18 @@ def main():
         finally:
             args.plan.unlink(missing_ok=True)
         return
-    start = timestamp(os.environ.get('VIDEO_ANALYSIS_START_AT', ''))
-    if args.command == 'plan':
+    if args.command in ('plan', 'recent-instagram'):
+        manual_recent = args.command == 'recent-instagram'
+        if manual_recent and os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch':
+            raise VideoError('manual_recent_only')
+        now = dt.datetime.now(UTC)
+        start = now - dt.timedelta(hours=72) if manual_recent else timestamp(os.environ.get('VIDEO_ANALYSIS_START_AT', ''))
         platforms = tuple(os.environ.get('VIDEO_ANALYSIS_PLATFORMS', 'instagram').split(','))
+        if manual_recent:
+            platforms = ('instagram',)
         if not platforms or any(p not in ('instagram', 'youtube') for p in platforms):
             raise VideoError('invalid_platform_configuration')
-        jobs = pending(client, dt.datetime.now(UTC), start, platforms)
+        jobs = pending(client, now, start, platforms, manual_recent=manual_recent)
         if not args.plan:
             raise VideoError('plan_path_required')
         args.plan.write_text(json.dumps(jobs), encoding='utf-8')

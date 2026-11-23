@@ -9,7 +9,7 @@ on:
         required: true
         default: check
         type: choice
-        options: [check, delivery-test, integration-test, inbox, public-smoke]
+        options: [check, delivery-test, integration-test, inbox, recent-instagram, public-smoke]
 permissions:
   contents: read
 concurrency:
@@ -27,7 +27,7 @@ jobs:
       ((github.event_name == 'schedule' && vars.VIDEO_ANALYSIS_ENABLED == 'true') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode != 'public-smoke'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.mode == 'recent-instagram' && 120 || 45 }}
     env:
       HF_HUB_DISABLE_TELEMETRY: '1'
       DO_NOT_TRACK: '1'
@@ -49,6 +49,8 @@ jobs:
             python scripts/inbox_worker.py "$MODE"
           elif [ "$MODE" = integration-test ]; then
             python scripts/inbox_worker.py seed-test --plan "$RUNNER_TEMP/chuck-plan.json"
+          elif [ "$MODE" = recent-instagram ]; then
+            python scripts/inbox_worker.py recent-instagram --plan "$RUNNER_TEMP/chuck-plan.json"
           else
             python scripts/inbox_worker.py plan --plan "$RUNNER_TEMP/chuck-plan.json"
           fi

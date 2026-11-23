@@ -55,6 +55,15 @@ Existing PR: https://github.com/mezentsevaleksey-dotcom/chuck-inbox/pull/1
    Set `VIDEO_ANALYSIS_ENABLED=false` to stop analysis. Telegram → Gmail remains
    independent. A disabled platform's original links are still forwarded.
 
+### Reviewing recent Instagram links on owner request
+
+Manual `mode=recent-instagram` selects up to three newest unprocessed Instagram
+links from genuine Chuck Inbox source emails within 72 hours. Technical test
+sources are excluded. It does not change the scheduled cutoff or platform list.
+The server permits the longer source age only for an authenticated manual run
+and only for Instagram; the scheduled path retains the 20-hour window. Existing
+recipient checks, idempotency, daily caps and log privacy remain in force.
+
 ## Bounds and recovery
 
 - Maximum video duration: 10 minutes. Maximum downloaded data: 150 MiB.

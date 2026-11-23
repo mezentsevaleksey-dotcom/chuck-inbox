@@ -145,6 +145,16 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(len(jobs),1)
         self.assertEqual(jobs[0]['source_id'],old['id'])
 
+    def test_manual_recent_uses_newest_three_real_instagram_sources_within_three_days(self):
+        rows=[email(i,age=age) for i,age in enumerate([1,25,30,50,73],1)]
+        rows.append(email(6,subject=SOURCE_PREFIX+'TEST 123',age=.5))
+        bodies={r['id']:'Chuck Inbox - context package item\n\nText/caption:\nhttps://www.instagram.com/reel/CLIP_0'+str(i)+'/' for i,r in enumerate(rows)}
+        jobs=pending(FakeResend(rows,bodies),NOW,NOW-dt.timedelta(hours=72),('instagram',),manual_recent=True)
+        self.assertEqual([j['source_id'] for j in jobs],[r['id'] for r in rows[:3]])
+        self.assertTrue(all(j['manual_recent'] for j in jobs))
+        normal=pending(FakeResend(rows,bodies),NOW,NOW-dt.timedelta(hours=72),('instagram',))
+        self.assertEqual([j['source_id'] for j in normal],[rows[0]['id']])
+
     def test_daily_analysis_cap(self):
         rows = [email(i+2,subject=RESULT_PREFIX+str(i)) for i in range(10)] + [email()]
         self.assertEqual(self.plan(FakeResend(rows)),[])

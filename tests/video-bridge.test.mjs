@@ -116,6 +116,16 @@ test('repeated fixed-fixture tests have separate labelled results without changi
   assert.equal(sent[0].headers['Idempotency-Key'],'chuck-video-fixture-12345');
   assert.match(sent[0].body.text,/не получен из Telegram/);
 });
+test('recent-source review extends age only for manual Instagram runs and never beyond 72 hours',async()=>{
+  const ig='https://www.instagram.com/p/CLIP_123/';
+  const source={...original,text:original.text.replace(url,ig),created_at:new Date(now*1000-30*3600000).toISOString()};
+  const input={action:'deliver',job:{url:ig,source_id:id,manual_recent:true},report:'Review'};
+  await setup({source}).run(input,claims);
+  await assert.rejects(setup({source}).run(input,{...claims,event_name:'schedule'}),/manual_recent_only/);
+  await assert.rejects(setup({source}).run({...input,job:{url:ig,source_id:id}},claims),/source_expired/);
+  await assert.rejects(setup({source:{...source,created_at:new Date(now*1000-73*3600000).toISOString()}}).run(input,claims),/source_expired/);
+  await assert.rejects(setup().run({...input,job:{url,source_id:id,manual_recent:true}},claims),/manual_recent_only/);
+});
 test('server daily cap preserves allowance for original forwarding',async()=>{
   const {run,sent}=setup({rows:Array.from({length:90},()=>original)});
   await assert.rejects(run({action:'deliver',job:{url,source_id:id},report:'report'},claims),/daily_limit/);
